@@ -1,0 +1,253 @@
+---
+title: "FA-MMT"
+author: "Jimmy Zhang"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{tspa-interaction}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r Loading packages, echo = FALSE, warning = FALSE, message = FALSE}
+#Load in libraries
+library(psych)
+library(tidyverse)
+library(dplyr)
+library(EFAtools)
+library(caret)
+library(nortest)
+library(ggpubr)
+library(nFactors)
+library(lavaan)
+
+#Set random seed
+set.seed(42)
+```
+
+```{r import data, echo = FALSE, warning = FALSE, message = FALSE}
+MMT_Data<- read.csv("MMT_MetaTask.csv")
+```
+
+```{r data preprocessing, echo = FALSE, warning = FALSE, message = FALSE}
+MMT_Data$Model <- factor(MMT_Data$Model)
+MMT_Data <- mutate_if(MMT_Data,is.character, as.numeric)
+write.table(MMT_Data, file = "colnames.dat", row.names = FALSE, col.names = TRUE, sep = " ")
+scaled_Data <- MMT_Data %>% mutate(across(where(is.numeric), scale))
+
+# This data cannot pass KMO test and Bartlett's sphericity test due to insufficient rank
+# Strategy: simulate clustered data
+KMO(scaled_Data[,-c(1,2)])
+```
+
+```{r generate clustered data, echo = FALSE, warning = FALSE, message = FALSE}
+# Remove irrelevant columns
+scoreOnly_Data <- scaled_Data[,-1]
+
+# Initialize a list to store the results
+random_numbers_list <- list()
+cluster_ids <- c()
+# Cluster sample size
+N = 200
+
+for (i in 1:nrow(scoreOnly_Data)) {
+  # Initialize a matrix to store the random numbers for the current row
+  row_random_numbers <- matrix(nrow = N, ncol = ncol(scoreOnly_Data))
+  
+  for (j in 1:ncol(scoreOnly_Data)) {
+    random_numbers <- rnorm(N, mean = scoreOnly_Data[i, j], sd = 0.5)
+    row_random_numbers[, j] <- random_numbers
+  }
+  
+  random_numbers_list[[i]] <- row_random_numbers
+  cluster_ids <- c(cluster_ids, rep(i, N))
+}
+
+# Flatten the list and convert to a data frame
+flattened_list <- do.call(rbind, random_numbers_list)
+
+# Convert to a data frame
+simulated_Data <- as.data.frame(flattened_list)
+simulated_Data <- cbind(cluster_id = cluster_ids, simulated_Data)
+sample_id <- seq(1, nrow(simulated_Data))
+simulated_Data <- cbind(sample_id, simulated_Data)
+colnames(simulated_Data) <- c("sample_id", "cluster_id", paste0("V", 1:ncol(scoreOnly_Data)))
+# Save the dataframe to a .dat file
+write.table(simulated_Data, file = "mefa.dat", row.names = FALSE, col.names = TRUE, sep = " ")
+
+# # Check cluster means 
+# row_means_by_cluster <- simulated_Data %>%
+#   group_by(cluster_id) %>%
+#   summarise(across(starts_with("V"), mean))
+# 
+# scoreOnly_clustered <- row_means_by_cluster[,-1]
+# print(scoreOnly_clustered - scoreOnly_Data)
+```
+
+```{r perform MEFA, echo = FALSE, warning = FALSE, message = FALSE}
+efa_clustered <- simulated_Data[,-c(1:3)]
+
+# KMO test
+KMO(efa_clustered)
+
+# Internal consistency
+psych::alpha(efa_clustered)
+```
+
+```{r Perform EFA for 32 meta-tasks, echo = FALSE, warning = FALSE, message = FALSE}
+N_FACTORS(efa_clustered, criteria = c("PARALLEL", "EKC", "SMT"),
+          eigen_type_other = c("SMC", "PCA"))
+
+# Using EFAtools
+EFA(efa_clustered, n_factors = 6, rotation = "oblimin", init_comm = "smc", method = "PAF")
+EFA(efa_clustered, n_factors = 5, rotation = "oblimin", init_comm = "smc", method = "ULS")
+```
+
+```{r Perform EFA for 162 sub-tasks, echo = FALSE, warning = FALSE, message = FALSE}
+MMT_Sub <- read.csv("MMT_SubTask.csv")
+MMT_Sub$Model <- factor(MMT_Sub$Model)
+MMT_Sub <- mutate_if(MMT_Sub,is.character, as.numeric)
+scaled_Sub <- MMT_Sub %>% mutate(across(where(is.numeric), scale))
+
+scoreOnly_Sub <- scaled_Sub[,-1]
+
+# Initialize a list to store the results
+random_numbers_list <- list()
+cluster_ids <- c()
+# Cluster sample size
+N = 200
+
+for (i in 1:nrow(scoreOnly_Sub)) {
+  # Initialize a matrix to store the random numbers for the current row
+  row_random_numbers <- matrix(nrow = N, ncol = ncol(scoreOnly_Sub))
+  
+  for (j in 1:ncol(scoreOnly_Sub)) {
+    random_numbers <- rnorm(N, mean = scoreOnly_Sub[i, j], sd = 0.5)
+    row_random_numbers[, j] <- random_numbers
+  }
+  
+  random_numbers_list[[i]] <- row_random_numbers
+  cluster_ids <- c(cluster_ids, rep(i, N))
+}
+
+# Flatten the list and convert to a data frame
+flattened_list <- do.call(rbind, random_numbers_list)
+
+# Convert to a data frame
+simulated_Sub <- as.data.frame(flattened_list)
+simulated_Sub <- cbind(cluster_id = cluster_ids, simulated_Sub)
+sample_id <- seq(1, nrow(simulated_Sub))
+simulated_Sub <- cbind(sample_id, simulated_Sub)
+colnames(simulated_Sub) <- c("sample_id", "cluster_id", paste0("V", 1:ncol(scoreOnly_Sub)))
+# Save the dataframe to a .dat file
+write.table(simulated_Sub, file = "mefa_sub.dat", row.names = FALSE, col.names = TRUE, sep = " ")
+
+simulated_Sub <- simulated_Sub[,-c(1:2)]
+names(simulated_Sub) <- colnames(MMT_Sub[,-1])
+KMO(simulated_Sub)
+psych::alpha(simulated_Sub)
+
+N_FACTORS(simulated_Sub, criteria = c("PARALLEL", "Hull", "Scree", "SMT", "EKC"),
+          eigen_type_other = c("SMC", "PCA"))
+```
+
+```{r Test normality, echo = FALSE, warning = FALSE, message = FALSE}
+test_normality <- function(data) {
+  results <- data.frame(Variable = character(),
+                        Skewness = numeric(),
+                        Kurtosis = numeric(),
+                        JB_statistic = numeric(),
+                        JB_p_value = numeric(),
+                        stringsAsFactors = FALSE)
+  
+  for (var in names(data)) {
+    if (is.numeric(data[[var]])) {
+      # Descriptive Statistics
+      skewness_value <- e1071::skewness(data[[var]], na.rm = TRUE)
+      kurtosis_value <- e1071::kurtosis(data[[var]], na.rm = TRUE) - 3  # Adjust for excess kurtosis
+      
+      # Jarque-Bera Test
+      jb_test <- tseries::jarque.bera.test(data[[var]])
+      
+      results <- rbind(results, data.frame(
+        Variable = var,
+        Skewness = skewness_value,
+        Kurtosis = kurtosis_value,
+        JB_statistic = jb_test$statistic,
+        JB_p_value = jb_test$p.value
+      ))
+    }
+  }
+  
+  return(results)
+}
+
+# Test Normality for All Variables
+normality_results <- test_normality(simulated_Sub)
+print(normality_results)
+```
+
+```{r model comparison, echo = FALSE, warning = FALSE, message = FALSE}
+compare_efa_models <- function(data, factors_to_test, rotation = "varimax", estimator = "ML") {
+  
+  fit_measures_robust <- c("rmsea", "cfi", "tli")
+  results <- list()
+  
+  for (nfactors in factors_to_test) {
+    fit <- efa(data = data, nfactors = nfactors, rotation = rotation, estimator = estimator)
+    fit_indices <- fitMeasures(fit, fit_measures_robust)
+    results[[as.character(nfactors)]] <- fit_indices
+  }
+
+  fit_indices_df <- do.call(rbind, lapply(names(results), function(nfactors) {
+    cbind(Factors = as.numeric(nfactors), results[[nfactors]])
+  }))
+  
+  return(as.data.frame(fit_indices_df))
+}
+
+
+# Example
+fit_indices_df <- compare_efa_models(simulated_Sub, factors_to_test = c(15, 19, 20, 31))
+print(fit_indices_df)
+row_names <- rownames(fit_indices_df)
+fit_indices_df <- data.frame(Measure = rownames(fit_indices_df), fit_indices_df)
+rownames(fit_indices_df) <- NULL
+colnames(fit_indices_df) <- c("Measure", "N_Factor", "Value")
+fit_indices_df <- pivot_wider(fit_indices_df, names_from = N_Factor, values_from = Value)
+data_wide$Measure <- sub("[\\.0-9]+$", "", data_wide$Measure)
+data_long <- pivot_longer(data_wide, cols = -Measure, 
+                          names_to = "N_Factor", values_to = "Value")
+data_long <- na.omit(data_long)
+data_long$Value <- round(data_long$Value, 3)
+fit_indices_df <- pivot_wider(data_long, names_from = N_Factor, values_from = Value)
+
+```
+
+```{r Plot model comparison, echo = FALSE, warning = FALSE, message = FALSE}
+plot_fit_indices <- function(fit_indices_df) {
+  par(mfrow = c(3, 3))  # Arrange plots in a 3x3 grid
+  plot(fit_indices_df$Factors, fit_indices_df$rmsea.scaled, type = "b", xlab = "Number of Factors", ylab = "RMSEA (Scaled)", main = "RMSEA (Scaled)")
+  plot(fit_indices_df$Factors, fit_indices_df$bic, type = "b", xlab = "Number of Factors", ylab = "BIC", main = "BIC")
+  plot(fit_indices_df$Factors, fit_indices_df$cfi.scaled, type = "b", xlab = "Number of Factors", ylab = "CFI (Scaled)", main = "CFI (Scaled)")
+  plot(fit_indices_df$Factors, fit_indices_df$tli.scaled, type = "b", xlab = "Number of Factors", ylab = "TLI (Scaled)", main = "TLI (Scaled)")
+  plot(fit_indices_df$Factors, fit_indices_df$srmr, type = "b", xlab = "Number of Factors", ylab = "SRMR", main = "SRMR")
+  plot(fit_indices_df$Factors, fit_indices_df$chisq.scaled, type = "b", xlab = "Number of Factors", ylab = "Chi-Square (Scaled)", main = "Chi-Square (Scaled)")
+  plot(fit_indices_df$Factors, fit_indices_df$df, type = "b", xlab = "Number of Factors", ylab = "Degrees of Freedom", main = "Degrees of Freedom")
+  plot(fit_indices_df$Factors, fit_indices_df$pvalue.scaled, type = "b", xlab = "Number of Factors", ylab = "p-value (Scaled)", main = "p-value (Scaled)")
+  plot(fit_indices_df$Factors, fit_indices_df$aic, type = "b", xlab = "Number of Factors", ylab = "AIC", main = "AIC")
+}
+
+# Plot the fit measures
+plot_fit_indices(fit_indices_df)
+```
+
+
+
+
+
+
+
+
+
+

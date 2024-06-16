@@ -1,0 +1,150 @@
+---
+title: "FA-SEED"
+author: "Jimmy Zhang"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{tspa-interaction}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r Loading packages, echo = FALSE, warning = FALSE, message = FALSE}
+#Load in libraries
+library(psych)
+library(Rdimtools)
+library(tidyverse)
+library(dplyr)
+library(lavaan)
+library(caret)
+
+#Set random seed
+set.seed(42)
+```
+
+```{r import data, echo = FALSE, warning = FALSE, message = FALSE}
+models <- c("InstructBBLIP", "BLIP2", "mPLUG-Owl", "Vicuna", "Llama-Adapter V2", "Video-ChatGPT", "Video-Vicuna", "OpenFlamingo", "MultiModal-GPT", "GVT", "Flan-T5", "LuLaV", "Llama", "MinGPT-4", "Flatter", "Oven", "Multibody", "Vicuna-GUI")  # Add all model names
+tasks <- c("Scene_Understanding", "Instance_Identity", "Instance_Attributes", "Instance_Location", "Instance_Counting", "Spatial_Relations", "Instance_Interaction", "Visual_Reasoning", "Text_Recognition", "Action_Recognition", "Action_Prediction", "Procedure_Understanding")  
+
+# Initialize the data frame
+SEED_Data <- as.data.frame(matrix(NA, nrow = 18, ncol = 12, dimnames = list(models, tasks)))
+
+# Example of filling in data (you will fill this based on your screenshot data)
+SEED_Data["Scene_Understanding"] <- c(60.29, 60.20, 59.12, 56.27, 51.87, 49.68, 47.12, 45.22, 44.90,
+                                      43.86, 43.64, 42.69, 41.74, 39.33, 37.24, 26.28, 23.38, 23.04)
+SEED_Data["Instance_Identity"] <- c(58.93, 58.49, 53.90, 49.15, 45.33, 44.13, 43.80, 38.56, 38.50, 
+                                    38.12, 37.85, 35.50, 34.90, 32.88, 31.40, 30.67,29.00, 27.40)
+SEED_Data["Instance_Attributes"] <- c(65.63, 63.37, 49.19, 45.82, 39.90, 34.85, 33.45, 33.23, 32.76, 
+                                      32.52, 32.24, 31.79, 31.62, 31.45, 31.28, 29.69, 29.30, 26.16)
+SEED_Data["Instance_Location"] <- c(43.56, 42.33, 40.59, 39.98, 37.93, 36.71, 36.09, 33.03, 31.75, 
+                                    30.91, 30.88, 30.78, 30.06, 29.45, 28.43, 28.43, 28.25, 27.91)
+SEED_Data["Instance_Counting"] <- c(58.44, 57.05, 45.32, 43.15, 41.85, 36.17, 35.51, 33.71, 32.82, 
+                                    30.83, 29.67, 27.34, 27.30, 27.26, 26.28, 25.07, 24.23, 20.54)
+SEED_Data["Spatial_Relations"] <- c(40.33, 38.66, 36.68, 36.38, 35.46, 34.55, 32.72, 32.57, 31.96, 
+                                    31.81, 31.75, 30.75, 30.59, 30.14, 30.14, 29.53, 28.77, 28.57)
+SEED_Data["Instance_Interaction"] <- c(55.67, 52.58, 51.55, 47.42, 44.33, 42.27, 39.18, 32.98, 31.96, 
+                                       31.96, 31.96, 29.90, 29.90, 29.79, 27.84, 27.84, 23.71, 19.15)
+SEED_Data["Visual_Reasoning"] <- c(57.10, 54.68, 53.17, 51.96, 51.36, 51.36, 51.06, 50.45, 50.15, 
+                                   47.73, 46.83, 45.92, 45.62, 43.81, 42.30, 37.01, 18.51, 18.15)
+SEED_Data["Text_Recognition"] <- c(43.53, 37.65, 31.76, 30.59, 27.06, 25.88, 25.88, 25.88, 24.71, 
+                                   20.00, 19.40, 18.82, 18.82, 17.65, 13.43, 11.76, 11.76, 8.96)
+SEED_Data["Action_Recognition"] <- c(39.54, 38.56, 38.22, 37.93, 37.24, 36.90, 34.89, 34.48, 33.91, 
+                                     33.10, 32.99, 32.59, 31.26, 29.71, 27.59, 27.30, 26.72, 23.16)
+SEED_Data["Action_Prediction"] <- c(49.64, 49.11, 47.47, 36.35, 34.91, 34.52, 27.15, 25.76, 25.42,
+                                    25.37, 24.51, 24.31, 23.21, 23.11, 21.43, 21.33, 18.54, 17.91)
+SEED_Data["Procedure_Understanding"] <- c(31.88, 27.27, 27.10, 27.10, 26.51, 26.17, 25.42, 24.83, 24.24, 
+                                          23.99, 23.99, 23.83, 23.07, 22.99, 21.14, 20.72, 19.63, 19.13)
+```
+
+```{r Without data generation, echo = FALSE, warning = FALSE, message = FALSE}
+
+SEED_Model <- "Spa_Und =~ Scene_Understanding + Instance_Identity + Instance_Attributes + 
+                          Instance_Location + Instance_Counting + Spatial_Relations + 
+                          Instance_Interaction + Visual_Reasoning + Text_Recognition
+                          
+               Temp_Und =~ Action_Recognition + Action_Prediction + Procedure_Understanding"
+
+
+SEED_fit <- sem(SEED_Model, data = SEED_Data)
+summary(SEED_fit)
+fitMeasures(SEED_fit)
+```
+
+```{r With data generation, echo = FALSE, warning = FALSE, message = FALSE}
+# Initialize a list to store the results
+random_numbers_list <- list()
+cluster_ids <- c()
+# Cluster sample size
+N = 200
+
+for (i in 1:nrow(SEED_Data)) {
+  # Initialize a matrix to store the random numbers for the current row
+  row_random_numbers <- matrix(nrow = N, ncol = ncol(SEED_Data))
+  
+  for (j in 1:ncol(SEED_Data)) {
+    random_numbers <- rnorm(N, mean = SEED_Data[i, j], sd = 0.5)
+    row_random_numbers[, j] <- random_numbers
+  }
+  
+  random_numbers_list[[i]] <- row_random_numbers
+  cluster_ids <- c(cluster_ids, rep(i, N))
+}
+
+# Flatten the list and convert to a data frame
+flattened_list <- do.call(rbind, random_numbers_list)
+
+# Convert to a data frame
+simulated_Data <- as.data.frame(flattened_list)
+simulated_Data <- cbind(cluster_id = cluster_ids, simulated_Data)
+sample_id <- seq(1, nrow(simulated_Data))
+simulated_Data <- cbind(sample_id, simulated_Data)
+colnames(simulated_Data) <- c("sample_id", "cluster_id", colnames(SEED_Data))
+
+simSEED_fit <- sem(SEED_Model, data = simulated_Data)
+summary(simSEED_fit)
+fitMeasures(simSEED_fit)
+```
+
+```{r perform MEFA, echo = FALSE, warning = FALSE, message = FALSE}
+efa_clustered <- simulated_Data[,-c(1:3)]
+
+# KMO test
+KMO(efa_clustered)
+
+# Internal consistency
+psych::alpha(efa_clustered)
+```
+
+```{r Perform EFA, echo = FALSE, warning = FALSE, message = FALSE}
+N_FACTORS(efa_clustered, criteria = c("PARALLEL", "EKC", "SMT"),
+          eigen_type_other = c("SMC", "PCA"))
+
+# EFA(efa_clustered, n_factors = 3, rotation = "oblimin", method = "ULS")
+# EFA(efa_clustered, n_factors = 4, rotation = "oblimin", method = "ULS")
+# EFA(efa_clustered, n_factors = 5, rotation = "oblimin", method = "ULS")
+# PCA suggested 6 factors
+EFA(efa_clustered, n_factors = 6, rotation = "oblimin", method = "ULS")
+EFA(efa_clustered, n_factors = 5, rotation = "oblimin", method = "ULS")
+```
+
+```{r generate data for GPT-4V, echo = FALSE, warning = FALSE, message = FALSE}
+gpt4v_Data <- matrix(nrow = 1320, ncol = ncol(scoreOnly_Data))
+  
+for (j in 1:ncol(scoreOnly_Data)) {
+  random_numbers <- rnorm(1320, mean = scoreOnly_Data[3, j], sd = 0.5)
+  gpt4v_Data[, j] <- random_numbers
+}
+
+# Convert to a data frame
+gpt4v_Data <- as.data.frame(gpt4v_Data)
+gpt4v_Data <- gpt4v_Data[,-1]
+# KMO test
+KMO(gpt4v_Data)
+```
+
+
+
+
+
+
+
