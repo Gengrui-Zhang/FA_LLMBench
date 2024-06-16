@@ -26,14 +26,14 @@ set.seed(42)
 ```
 
 ```{r import data, echo = FALSE, warning = FALSE, message = FALSE}
-MMT_Data <- read.csv("Data/MMT_MetaTask.csv")
+MMT_Meta <- read.csv("/Users/jimmy_z/R Projects/FA_LLMBench/Data/MMT_MetaTask.csv")
 ```
 
 ```{r data preprocessing, echo = FALSE, warning = FALSE, message = FALSE}
-MMT_Data$Model <- factor(MMT_Data$Model)
-MMT_Data <- mutate_if(MMT_Data,is.character, as.numeric)
-write.table(MMT_Data, file = "colnames.dat", row.names = FALSE, col.names = TRUE, sep = " ")
-scaled_Data <- MMT_Data %>% mutate(across(where(is.numeric), scale))
+MMT_Meta$Model <- factor(MMT_Meta$Model)
+MMT_Meta <- mutate_if(MMT_Meta,is.character, as.numeric)
+write.table(MMT_Meta, file = "colnames.dat", row.names = FALSE, col.names = TRUE, sep = " ")
+scaled_Data <- MMT_Meta %>% mutate(across(where(is.numeric), scale))
 
 # This data cannot pass KMO test and Bartlett's sphericity test due to insufficient rank
 # Strategy: simulate clustered data
@@ -104,7 +104,7 @@ EFA(efa_clustered, n_factors = 5, rotation = "oblimin", init_comm = "smc", metho
 ```
 
 ```{r Perform EFA for 162 sub-tasks, echo = FALSE, warning = FALSE, message = FALSE}
-MMT_Sub <- read.csv("MMT_SubTask.csv")
+MMT_Sub <- read.csv("/Users/jimmy_z/R Projects/FA_LLMBench/Data/MMT_SubTask.csv")
 MMT_Sub$Model <- factor(MMT_Sub$Model)
 MMT_Sub <- mutate_if(MMT_Sub,is.character, as.numeric)
 scaled_Sub <- MMT_Sub %>% mutate(across(where(is.numeric), scale))
