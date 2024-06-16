@@ -26,7 +26,7 @@ set.seed(42)
 ```
 
 ```{r import data, echo = FALSE, warning = FALSE, message = FALSE}
-MMT_Data<- read.csv("MMT_MetaTask.csv")
+MMT_Data <- read.csv("Data/MMT_MetaTask.csv")
 ```
 
 ```{r data preprocessing, echo = FALSE, warning = FALSE, message = FALSE}
