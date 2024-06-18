@@ -26,7 +26,7 @@ set.seed(42)
 ```
 
 ```{r import data, echo = FALSE, warning = FALSE, message = FALSE}
-MMT_Meta <- read.csv("/Users/jimmy_z/R Projects/FA_LLMBench/Data/MMT_MetaTask.csv")
+MMT_Meta <- read.csv("/home/gengruiz/FA_LLMBench/Data/MMT_MetaTask.csv")
 ```
 
 ```{r data preprocessing, echo = FALSE, warning = FALSE, message = FALSE}
@@ -104,7 +104,7 @@ EFA(efa_clustered, n_factors = 5, rotation = "oblimin", init_comm = "smc", metho
 ```
 
 ```{r Perform EFA for 162 sub-tasks, echo = FALSE, warning = FALSE, message = FALSE}
-MMT_Sub <- read.csv("/Users/jimmy_z/R Projects/FA_LLMBench/Data/MMT_SubTask.csv")
+MMT_Sub <- read.csv("/home/gengruiz/FA_LLMBench/Data/MMT_SubTask.csv")
 MMT_Sub$Model <- factor(MMT_Sub$Model)
 MMT_Sub <- mutate_if(MMT_Sub,is.character, as.numeric)
 scaled_Sub <- MMT_Sub %>% mutate(across(where(is.numeric), scale))
@@ -184,45 +184,70 @@ test_normality <- function(data) {
 
 # Test Normality for All Variables
 normality_results <- test_normality(simulated_Sub)
-print(normality_results)
+print(round(normality_results[,2:5], 3))
 ```
 
-```{r model comparison, echo = FALSE, warning = FALSE, message = FALSE}
-compare_efa_models <- function(data, factors_to_test, rotation = "varimax", estimator = "ML") {
-  
-  fit_measures_robust <- c("rmsea", "cfi", "tli")
-  results <- list()
-  
-  for (nfactors in factors_to_test) {
-    fit <- efa(data = data, nfactors = nfactors, rotation = rotation, estimator = estimator)
-    fit_indices <- fitMeasures(fit, fit_measures_robust)
-    results[[as.character(nfactors)]] <- fit_indices
+```{r Examination Function, echo = FALSE, warning = FALSE, message = FALSE}
+# Helper Function 1: Save rotated factor loading
+convert_and_save_matrix <- function(input_matrix, file_name = NULL) {
+  # Check if input is a matrix
+  if (!is.matrix(input_matrix)) {
+    stop("Input must be a matrix.")
   }
-
-  fit_indices_df <- do.call(rbind, lapply(names(results), function(nfactors) {
-    cbind(Factors = as.numeric(nfactors), results[[nfactors]])
-  }))
-  
-  return(as.data.frame(fit_indices_df))
+  new_matrix <- cbind(Variable = rownames(input_matrix), input_matrix)
+  rownames(new_matrix) <- NULL
+  new_matrix[, -1] <- round(as.numeric(new_matrix[, -1]), 3)
+  colnames(new_matrix) <- c("Variable", paste0("F", 1:(ncol(new_matrix) - 1)))
+  if (!is.null(file_name)) {
+    write.csv(new_matrix, file_name, row.names = FALSE)
+    cat("File saved as:", file_name, "\n")
+  }
+  return(new_matrix)
 }
 
+# Helper function 2: Filter out loadings with abs < 0.4
+reduced_loadings <- function(input_matrix, threshold = 0.4) {
+  data <- as.data.frame(input_matrix)
+  data[-1] <- lapply(data[-1], function(x) as.numeric(as.character(x)))
+  data <- data %>%
+    mutate(across(-1, ~ifelse(abs(.) < threshold, NA, .)))
+  return(data)
+}
 
-# Example
-fit_indices_df <- compare_efa_models(simulated_Sub, factors_to_test = c(15, 19, 20, 31))
-print(fit_indices_df)
-row_names <- rownames(fit_indices_df)
-fit_indices_df <- data.frame(Measure = rownames(fit_indices_df), fit_indices_df)
-rownames(fit_indices_df) <- NULL
-colnames(fit_indices_df) <- c("Measure", "N_Factor", "Value")
-fit_indices_df <- pivot_wider(fit_indices_df, names_from = N_Factor, values_from = Value)
-data_wide$Measure <- sub("[\\.0-9]+$", "", data_wide$Measure)
-data_long <- pivot_longer(data_wide, cols = -Measure, 
-                          names_to = "N_Factor", values_to = "Value")
-data_long <- na.omit(data_long)
-data_long$Value <- round(data_long$Value, 3)
-fit_indices_df <- pivot_wider(data_long, names_from = N_Factor, values_from = Value)
+# Helper function 3: Find out variables not loaded onto any factors
+find_all_na_variables <- function(data_frame) {
+  variables_with_all_NAs <- data_frame %>%
+    select(-Variable) %>% 
+    apply(1, function(x) all(is.na(x))) %>%
+    which()  
+  variable_names_with_all_NAs <- data_frame$Variable[variables_with_all_NAs]
+  return(variable_names_with_all_NAs)
+}
 
+# Helper function 4: Find out variables with negative loadings
+find_negative_value_variables <- function(data_frame) {
+  variables_with_negatives <- data_frame %>%
+    select(-Variable) %>%  
+    apply(1, function(x) any(x < 0)) %>%
+    which()  
+  variable_names_with_negatives <- data_frame$Variable[variables_with_negatives]
+  return(variable_names_with_negatives)
+}
 ```
+
+```{r Fit EFA, echo = FALSE, warning = FALSE, message = FALSE}
+fit_15 <- EFA(simulated_Sub, n_factors = 15, method = "ML", rotation = "oblimin")
+fs_15 <- FACTOR_SCORES(simulated_Sub, fit_15, method = "Bartlett", impute = "none")
+#SCREE(simulated_Sub, n_factors = 15, method = "ML", rotation = "oblimin")
+fit_ind_15 <- fit_15$fit_indices
+rot_load_15 <- fit_15$rot_loadings
+new_load_15 <- convert_and_save_matrix(rot_load_15, "rot_load_15.csv")
+red_load_15 <- reduced_loadings(as.data.frame(new_load_15))
+NAvar_15 <- find_all_na_variables(red_load_15)
+Negvar_15 <- find_negative_value_variables(red_load_15)
+write.csv(red_load_15, file = "fa_structure_15.csv", row.names = FALSE)
+```
+
 
 ```{r Plot model comparison, echo = FALSE, warning = FALSE, message = FALSE}
 plot_fit_indices <- function(fit_indices_df) {
